@@ -1,0 +1,36 @@
+name: Generate videos
+
+on:
+  workflow_dispatch:
+    inputs:
+      niche:
+        description: "Niche to build (part of its name, e.g. Cosmic). Empty = all 35 videos"
+        default: ""
+      limit:
+        description: "Max videos (0 = no limit)"
+        default: "0"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install ffmpeg and fonts
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core
+      - name: Install Python packages
+        run: pip install -r requirements.txt
+      - name: Generate videos
+        run: python generate.py
+        env:
+          NICHE: ${{ github.event.inputs.niche }}
+          LIMIT: ${{ github.event.inputs.limit }}
+      - name: Upload videos
+        uses: actions/upload-artifact@v4
+        with:
+          name: videos-${{ github.event.inputs.niche || 'all' }}
+          path: output/
+          retention-days: 7
