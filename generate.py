@@ -5,6 +5,7 @@ slow zoom + word-by-word captions."""
 import asyncio
 import os
 import re
+import shutil
 import subprocess
 import time
 import urllib.parse
@@ -207,25 +208,33 @@ def placeholder(path):
     ImageOps.colorize(grad, black="#02030a", white="#1b2a6b").save(path, quality=92)
 
 
+_last_request = [0.0]
+IMAGE_GAP = float(os.getenv("IMAGE_GAP", "15"))  # seconds between requests (free tier allows ~1 per 15 s)
+
+
 def fetch_image(prompt, path, seed):
+    """Download one image. Returns True on success, False if every attempt failed."""
     from PIL import Image, ImageOps
     url = IMAGE_URL.format(prompt=urllib.parse.quote(prompt), seed=seed)
-    for attempt in range(4):
+    for attempt in range(6):
+        wait = IMAGE_GAP - (time.time() - _last_request[0])
+        if wait > 0:
+            time.sleep(wait)
+        _last_request[0] = time.time()
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=120) as r:
+            with urllib.request.urlopen(req, timeout=180) as r:
                 data = r.read()
             raw = path.with_suffix(".raw")
             raw.write_bytes(data)
             with Image.open(raw) as im:
                 ImageOps.fit(im.convert("RGB"), (W, H)).save(path, quality=92)
             raw.unlink()
-            return
+            return True
         except Exception as e:
-            print(f"    image attempt {attempt + 1} failed: {e}")
-            time.sleep(5 * (attempt + 1))
-    print("    using placeholder image")
-    placeholder(path)
+            print(f"    image attempt {attempt + 1}/6 failed: {e}")
+            time.sleep(min(60, 15 * (attempt + 1)))
+    return False
 
 
 # ---------- captions ----------
@@ -273,11 +282,19 @@ def build_video(video, num, cfg, out_dir, work, words, mp3):
     total = audio_duration(mp3) + 0.4
     starts = scene_starts(words, len(chunks), total)
     clips = []
+    last_good = None
     for i, chunk in enumerate(chunks):
         prompt = ". ".join(p for p in (chunk, ctx, genre, cfg["style"], BASE_STYLE) if p)[:700]
         img = work / f"scene{i}.jpg"
         print(f"    scene {i + 1}/{len(chunks)}: {chunk[:70]}")
-        fetch_image(prompt, img, seed=num * 100 + i)
+        if not fetch_image(prompt, img, seed=num * 100 + i):
+            if last_good:
+                print("    reusing the previous image for this scene")
+                shutil.copy(last_good, img)
+            else:
+                print("    using placeholder image")
+                placeholder(img)
+        last_good = img
         clip = work / f"clip{i}.mp4"
         make_clip(img, starts[i + 1] - starts[i], i % 2 == 0, clip)
         clips.append(clip)
