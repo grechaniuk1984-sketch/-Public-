@@ -1,2 +1,3 @@
 edge-tts>=7.2.7
+gTTS>=2.5.0
 Pillow>=10.0.0
