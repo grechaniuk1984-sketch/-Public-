@@ -169,6 +169,37 @@ async def synth(text, mp3_path, voice, rate):
     return words
 
 
+def estimate_words(text, total):
+    """Rough word timings (used when the TTS service gives none)."""
+    toks = text.split()
+    weights = [len(t) + (6 if t[-1] in ".!?" else 3 if t[-1] in ",:;" else 0) for t in toks]
+    s, t, out = sum(weights), 0.0, []
+    for tok, w in zip(toks, weights):
+        d = total * w / s
+        out.append((t, t + d * 0.9, tok))
+        t += d
+    return out
+
+
+def synth_gtts(text, mp3_path):
+    from gtts import gTTS
+    gTTS(text=text, lang="en", tld="com").save(str(mp3_path))
+    return estimate_words(text, audio_duration(mp3_path))
+
+
+def synth_with_fallback(text, mp3_path, voice, rate):
+    """edge-tts first (exact word timings); if the service refuses, try other voices, then gTTS."""
+    attempts = [(voice, rate), (voice, "+0%"), ("en-US-AriaNeural", "+0%"), ("en-GB-SoniaNeural", "+0%")]
+    for v, r in attempts:
+        try:
+            return asyncio.run(synth(text, mp3_path, v, r))
+        except Exception as e:
+            print(f"    edge-tts ({v}, {r}) failed: {e}")
+            time.sleep(2)
+    print("    falling back to gTTS")
+    return synth_gtts(text, mp3_path)
+
+
 # ---------- images ----------
 def placeholder(path):
     from PIL import Image, ImageOps
@@ -286,7 +317,7 @@ def main():
                 work = TMP / f"{num:02d}"
                 work.mkdir(exist_ok=True)
                 mp3 = work / "voice.mp3"
-                words = asyncio.run(synth(video["voiceover"], mp3, cfg["voice"], cfg["rate"] or TTS_RATE_DEFAULT))
+                words = synth_with_fallback(video["voiceover"], mp3, cfg["voice"], cfg["rate"] or TTS_RATE_DEFAULT)
                 final = build_video(video, num, cfg, out_dir, work, words, mp3)
                 meta.append(f"\n## {final.name}\n- Title: {video['title']}\n- Description: {video['title']} {cfg['tags']}\n")
                 done += 1
