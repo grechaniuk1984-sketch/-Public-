@@ -319,6 +319,9 @@ def main():
     OUT.mkdir(exist_ok=True)
     TMP.mkdir(exist_ok=True)
     niches = parse_scripts((ROOT / "scripts.md").read_text(encoding="utf-8"))
+    print(f"Found {len(niches)} niches, {sum(len(n['videos']) for n in niches)} videos in scripts.md. "
+          f"NICHE filter={NICHE_FILTER!r}, LIMIT={LIMIT}")
+    print("Niche names:", [n["name"] for n in niches])
     num, done, made = 0, 0, 0
     for niche in niches:
         cfg = {**DEFAULT_CFG, **NICHES.get(niche["name"], {})}
@@ -345,6 +348,8 @@ def main():
                 print(f"    FAILED: {e}")
         if out_dir.exists():
             (out_dir / "metadata.md").write_text("\n".join(meta), encoding="utf-8")
+    if made == 0:
+        print("NOTHING SELECTED. Check that scripts.md is the right file and that the niche filter matches a niche name (e.g. Cosmic, Tiny, Midnight, Auto, Block, Radar, Restore), or leave it empty.")
     print(f"Done: {done}/{made} videos in {OUT}")
 
 
